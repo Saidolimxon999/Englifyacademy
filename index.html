@@ -187,7 +187,7 @@ var AF={},fbAuth=null,fbDb=null,cloudReady=false,cloudBusy=false,cloudTimer=null
 try{if(window.firebase&&CONFIG.FB.apiKey){if(!firebase.apps.length)firebase.initializeApp(CONFIG.FB);fbAuth=firebase.auth();fbDb=firebase.firestore();}}catch(fe){console.warn("Firebase init:",fe)}
 /* Firestore massiv ichida massivni qabul qilmaydi. Ichki massivlarni maxsus obyektga o‘rab,
    bulutdan o‘qilganda yana asl massiv holatiga qaytaramiz. */
-var FS_ARRAY_KEY="__englify_firestore_nested_array__";
+var FS_ARRAY_KEY="englifyFirestoreNestedArray";
 function fsEncode(value){
   if(Array.isArray(value)){
     return value.map(function(item){
