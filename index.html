@@ -185,7 +185,34 @@ var CONFIG={AI_URL:"",/* Cloudflare Worker manzili, masalan https://englify-ai.N
 FB:{apiKey:"AIzaSyAG4d4_i896dNja3L_HZjcs4r0hN0Wiwys",authDomain:"englishmaster-1edda.firebaseapp.com",projectId:"englishmaster-1edda"}/* Firebase: Project settings dan */};
 var AF={},fbAuth=null,fbDb=null,cloudReady=false,cloudBusy=false,cloudTimer=null,cloudWrite=null;
 try{if(window.firebase&&CONFIG.FB.apiKey){if(!firebase.apps.length)firebase.initializeApp(CONFIG.FB);fbAuth=firebase.auth();fbDb=firebase.firestore();}}catch(fe){console.warn("Firebase init:",fe)}
-function cloudSave(){if(!fbDb||!fbAuth||!fbAuth.currentUser||!cloudReady)return;clearTimeout(cloudTimer);cloudTimer=setTimeout(function(){var uid=fbAuth.currentUser&&fbAuth.currentUser.uid;if(!uid)return;var data;try{data=JSON.parse(JSON.stringify(S));}catch(e){console.warn("Cloud serialize:",e);return;}data.uid=uid;cloudWrite=fbDb.collection("users").doc(uid).set({state:data,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(function(e){console.warn("Cloud save:",e);var n=$("#gn");if(n)n.textContent="Firebase saqlash xatosi: "+(e.message||e);}).finally(function(){cloudWrite=null;});},500);}
+/* Firestore massiv ichida massivni qabul qilmaydi. Ichki massivlarni maxsus obyektga o‘rab,
+   bulutdan o‘qilganda yana asl massiv holatiga qaytaramiz. */
+var FS_ARRAY_KEY="__englify_firestore_nested_array__";
+function fsEncode(value){
+  if(Array.isArray(value)){
+    return value.map(function(item){
+      return Array.isArray(item)?(function(){var o={};o[FS_ARRAY_KEY]=fsEncode(item);return o;})():fsEncode(item);
+    });
+  }
+  if(value&&typeof value==="object"){
+    var out={};
+    Object.keys(value).forEach(function(k){out[k]=fsEncode(value[k]);});
+    return out;
+  }
+  return value;
+}
+function fsDecode(value){
+  if(Array.isArray(value))return value.map(fsDecode);
+  if(value&&typeof value==="object"){
+    var keys=Object.keys(value);
+    if(keys.length===1&&keys[0]===FS_ARRAY_KEY)return fsDecode(value[FS_ARRAY_KEY]);
+    var out={};
+    keys.forEach(function(k){out[k]=fsDecode(value[k]);});
+    return out;
+  }
+  return value;
+}
+function cloudSave(){if(!fbDb||!fbAuth||!fbAuth.currentUser||!cloudReady)return;clearTimeout(cloudTimer);cloudTimer=setTimeout(function(){var uid=fbAuth.currentUser&&fbAuth.currentUser.uid;if(!uid)return;var data;try{data=fsEncode(JSON.parse(JSON.stringify(S)));}catch(e){console.warn("Cloud serialize:",e);return;}data.uid=uid;cloudWrite=fbDb.collection("users").doc(uid).set({state:data,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(function(e){console.warn("Cloud save:",e);var n=$("#gn");if(n)n.textContent="Firebase saqlash xatosi: "+(e.message||e);}).finally(function(){cloudWrite=null;});},500);}
 function cloudClassRef(code){return fbDb.collection("classes").doc(String(code).toUpperCase())}
 function googleLogin(){if(!fbAuth){$("#gn").textContent="Firebase yuklanmadi. Internetni tekshiring va sahifani yangilang.";return;}var provider=new firebase.auth.GoogleAuthProvider();fbAuth.signInWithPopup(provider).catch(function(e){$("#gn").textContent="Google kirish xatosi: "+(e.code||e.message);});}
 var $=function(s){return document.querySelector(s)};
@@ -390,7 +417,7 @@ function logout(){if(fbAuth&&fbAuth.currentUser)fbAuth.signOut();S.user=null;S.e
 function initGate(){$("#gl").src=LOGO;$("#hl").src=LOGO;if(S.entered)$("#gate").hidden=true;else openGate(1)}
 if((navigator.hardwareConcurrency||8)<=4||(navigator.deviceMemory||8)<=3)document.documentElement.classList.add("lite");
 initGate();
-if(fbAuth){fbAuth.onAuthStateChanged(async function(user){if(!user){cloudReady=false;return;}try{var ref=fbDb.collection("users").doc(user.uid),snap=await ref.get(),local=JSON.parse(JSON.stringify(S));if(snap.exists&&snap.data().state){var cloud=snap.data().state;/* Cloud wins for an existing account; keep local state only for a brand-new cloud profile. */S=Object.assign(S,cloud);}else{S=Object.assign(S,local);}S.uid=user.uid;S.user={name:user.displayName||user.email||"Google foydalanuvchisi",email:user.email,photo:user.photoURL};S.entered=true;cloudReady=true;await ref.set({state:Object.assign({},S,{uid:user.uid}),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});var gate=$("#gate");if(gate){gate.classList.add("out");document.body.classList.remove("gated");setTimeout(function(){gate.hidden=true},450)}LR="";go();var mine=await fbDb.collection("classes").where("teacherUid","==",user.uid).get();S.classes=mine.docs.map(function(d){return d.data()});if(S.joined&&S.joined.code){var jc=await cloudClassRef(S.joined.code).get();if(jc.exists)S.hw=(jc.data().tasks||[]).map(function(t){return Object.assign({},t,{by:"t"})});}save();}catch(e){cloudReady=false;console.error("Firebase profile load:",e);var n=$("#gn");if(n)n.textContent="Firebase ma’lumotlarini yuklashda xato: "+(e.message||e);}});}
+if(fbAuth){fbAuth.onAuthStateChanged(async function(user){if(!user){cloudReady=false;return;}try{var ref=fbDb.collection("users").doc(user.uid),snap=await ref.get(),local=JSON.parse(JSON.stringify(S));if(snap.exists&&snap.data().state){var cloud=snap.data().state;/* Cloud wins for an existing account; keep local state only for a brand-new cloud profile. */S=Object.assign(S,fsDecode(cloud));}else{S=Object.assign(S,local);}S.uid=user.uid;S.user={name:user.displayName||user.email||"Google foydalanuvchisi",email:user.email,photo:user.photoURL};S.entered=true;cloudReady=true;await ref.set({state:fsEncode(Object.assign({},S,{uid:user.uid})),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});var gate=$("#gate");if(gate){gate.classList.add("out");document.body.classList.remove("gated");setTimeout(function(){gate.hidden=true},450)}LR="";go();var mine=await fbDb.collection("classes").where("teacherUid","==",user.uid).get();S.classes=mine.docs.map(function(d){return d.data()});if(S.joined&&S.joined.code){var jc=await cloudClassRef(S.joined.code).get();if(jc.exists)S.hw=(jc.data().tasks||[]).map(function(t){return Object.assign({},t,{by:"t"})});}save();}catch(e){cloudReady=false;console.error("Firebase profile load:",e);var n=$("#gn");if(n)n.textContent="Firebase ma’lumotlarini yuklashda xato: "+(e.message||e);}});}
 </script>
 </body>
 </html>
